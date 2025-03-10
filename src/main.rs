@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use rayon::prelude::*;
 use rustls::{
     crypto::{
         aws_lc_rs::{self, cipher_suite, kx_group},
@@ -21,27 +22,35 @@ fn main() -> Result<()> {
     // Parse the file downloaded from https://dataforseo.com/free-seo-stats/top-1000-websites
     let json = read_json_from_file("ranked_domains.json")?;
 
-    if let Value::Array(domains) = json {
-        for item in domains {
+    let mut domains = Vec::with_capacity(1000);
+    if let Value::Array(array) = json {
+        for item in array {
             if let Value::Object(obj) = item {
                 if let Value::String(domain) = obj.get("domain").unwrap() {
-                    let path = Path::new("chains").join(domain);
-                    // Skip if data is already present from a previous program run.
-                    if path.exists() {
-                        continue;
-                    }
-
-                    let certs = get_server_certs(domain)?;
-                    println!("Got {:?} certs for domain {:?}", certs.len(), domain);
-
-                    fs::create_dir(path.clone())?;
-                    for (idx, cert) in certs.iter().enumerate() {
-                        File::create(path.clone().join(idx.to_string()))?.write_all(cert)?;
-                    }
+                    domains.push(domain.clone());
                 }
             }
         }
     }
+
+    domains.par_iter_mut().for_each(|domain| {
+        let path = Path::new("chains").join(domain.clone());
+        // Skip if data is already present from a previous program run.
+        if path.exists() {
+            return;
+        }
+
+        let certs = get_server_certs(domain.clone().as_str()).unwrap();
+        println!("Got {:?} certs for domain {:?}", certs.len(), domain);
+
+        fs::create_dir(path.clone()).unwrap();
+        for (idx, cert) in certs.iter().enumerate() {
+            File::create(path.clone().join(idx.to_string()))
+                .unwrap()
+                .write_all(cert)
+                .unwrap();
+        }
+    });
 
     Ok(())
 }
