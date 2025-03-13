@@ -132,7 +132,7 @@ fn main() -> Result<()> {
         fpstr.push_str(&fp.chain_len.to_string());
 
         for sig in fp.signatures {
-            fpstr.push_str(&format!("|{:?}-{:?}-{:?}", sig.typ, sig.param, sig.hash));
+            fpstr.push_str(&format!("|{}-{}-{}", sig.typ, sig.param, sig.hash));
         }
 
         sum += p.1;
