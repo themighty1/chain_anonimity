@@ -3,9 +3,21 @@ name = "certchains"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "fetch_chains"
+path = "src/bin/fetch.rs"
+
+[[bin]]
+name = "parse_chains"
+path = "src/bin/parse.rs"
+
 [dependencies]
 rustls = "0.23.23"
 webpki-roots = "0.26.8"
 anyhow = "1.0.97"
 serde_json = "1.0.140"
 rayon = "1.8"
+x509-parser = "0.15"
+asn1-rs = "0.5.2"
+webpki-root-certs = "*"
+lazy_static = "*"
