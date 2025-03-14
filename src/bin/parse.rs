@@ -88,10 +88,10 @@ struct Fingerprint {
 }
 
 fn main() -> Result<()> {
-    let chains = read_chains()?;
-    let mut fingerprints = Vec::new();
+    let mut chains = read_chains()?;
 
-    for chain in chains {
+    let mut fingerprints = Vec::new();
+    for chain in chains.iter_mut() {
         match process_chain(chain).unwrap() {
             Some(fingerprint) => {
                 fingerprints.push(fingerprint);
@@ -99,6 +99,73 @@ fn main() -> Result<()> {
             None => continue,
         }
     }
+
+    // Maps the lower bound `x` of the range (x..x+100) to the amount of intermediate
+    // certs whose length falls into that range.
+    let mut ca_len: HashMap<usize, usize> = HashMap::new();
+
+    // Maps the lower bound `x` of the range (x..x+100) to the amount of end-entity
+    // certs whose length falls into that range.
+    let mut ee_len: HashMap<usize, usize> = HashMap::new();
+
+    // The total amount of end-entity certs in all chains.
+    let mut ee_total = 0;
+    // The total amount of intermediate CA certs in all chains.
+    let mut ca_total = 0;
+
+    for chain in chains {
+        // Iterate over all cert except the root cert.
+        for (idx, cert) in chain[..chain.len() - 1].iter().enumerate() {
+            let (_, cert) = parse_x509_certificate(cert)?;
+            // We only need to know the size of the TBS part - this is the private
+            // input to the ZK circuit.
+            let tbs_len = cert.tbs_certificate.as_ref().len();
+            let lower_bound = (tbs_len / 100) * 100;
+            if idx == 0 {
+                let old_v = ee_len.get(&lower_bound).unwrap_or(&0);
+                ee_len.insert(lower_bound, *old_v + 1);
+                ee_total += 1;
+            } else {
+                let old_v = ca_len.get(&lower_bound).unwrap_or(&0);
+                ca_len.insert(lower_bound, *old_v + 1);
+                ca_total += 1;
+            }
+        }
+    }
+
+    let mut ee_len: Vec<_> = ee_len.into_iter().collect();
+    ee_len.sort_by(|a, b| a.cmp(&b));
+
+    let mut ca_len: Vec<_> = ca_len.into_iter().collect();
+    ca_len.sort_by(|a, b| a.cmp(&b));
+
+    let mut sum = 0;
+    println!("ee cert bytesize   % of total");
+    println!();
+    for l in ee_len {
+        sum += l.1;
+        println!(
+            "{:<width1$} {:<width1$}",
+            l.0,
+            ((sum as f32 / ee_total as f32) * 100_f32) as usize,
+            width1 = 20
+        );
+    }
+    println!();
+
+    let mut sum = 0;
+    println!("interm cert bytesize   % of total");
+    println!();
+    for l in ca_len {
+        sum += l.1;
+        println!(
+            "{:<width1$} {:<width1$}",
+            l.0,
+            ((sum as f32 / ca_total as f32) * 100_f32) as usize,
+            width1 = 20
+        );
+    }
+    println!();
 
     // Split fingerprints into pools, keeping track of the pool size.
     let mut pools: HashMap<Fingerprint, usize> = HashMap::new();
@@ -180,8 +247,8 @@ fn read_chains() -> Result<Vec<X509chain>> {
     Ok(chains)
 }
 
-// Collects a fingerprint for the chain.
-fn process_chain(mut chain: X509chain) -> Result<Option<Fingerprint>> {
+// Restores the missing root cert (if any) in the chain and returns a fingerprint.
+fn process_chain(chain: &mut X509chain) -> Result<Option<Fingerprint>> {
     // Some websites don't send a root CA cert. We need to know if that's the case.
     let last = chain.last().unwrap();
     let (_, last_cert) = parse_x509_certificate(last)?;
